@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>SEU 抢票助手</title>
+<style>
+  body { margin: 0; width: 320px; font: 13px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif; color: #1f2d24; background: #f6faf7; }
+  .hd { padding: 12px 14px; background: linear-gradient(135deg, #16a05a, #0f7a45); color: #fff; font-weight: 600; letter-spacing: .3px; }
+  .bd { padding: 12px 14px 14px; }
+  .tip { color: #6b7a70; font-size: 12px; }
+  .title { font-weight: 600; margin: 2px 0 4px; word-break: break-all; }
+  .muted { color: #5b6b60; font-size: 12px; word-break: break-all; }
+  .cd { font-size: 24px; font-weight: 700; color: #0f7a45; font-variant-numeric: tabular-nums; margin: 8px 0 2px; }
+  .cd.warn { color: #b26a00; } .cd.err { color: #c62828; }
+  .st { font-size: 12px; min-height: 18px; color: #5b6b60; word-break: break-all; }
+  .st.ok { color: #0f7a45; } .st.err { color: #c62828; } .st.warn { color: #b26a00; }
+  .row { display: flex; gap: 8px; margin-top: 12px; }
+  button { flex: 1; border: 0; border-radius: 8px; padding: 8px 10px; font-size: 12px; cursor: pointer; }
+  .primary { background: #16a05a; color: #fff; }
+  .primary:disabled, .ghost:disabled { opacity: .5; cursor: default; }
+  .ghost { background: #e7f1ea; color: #225c3e; }
+  .danger { background: #fdecea; color: #a8322a; }
+  label.chk { display: flex; gap: 8px; align-items: flex-start; margin-top: 12px; font-size: 12px; color: #4a5b50; cursor: pointer; }
+  label.chk input { margin: 2px 0 0; }
+  .foot { margin-top: 10px; padding-top: 8px; border-top: 1px solid #e1ebe4; color: #8a998f; font-size: 11px; line-height: 1.5; }
+</style>
+</head>
+<body>
+  <div class="hd">SEU 抢票助手</div>
+  <div class="bd">
+    <div id="content" class="tip">正在检测当前页面…</div>
+    <label class="chk" id="monitorRow" style="display:none">
+      <input type="checkbox" id="monitor">
+      <span>开抢后继续盯回流票直到预约截止</span>
+    </label>
+    <div class="foot">验证码在本机识别，账号密码不会离开浏览器。抢票时请保持详情页在前台。</div>
+  </div>
+  <script src="popup.js"></script>
+</body>
+</html>

@@ -1,0 +1,35 @@
+{
+  "manifest_version": 3,
+  "name": "SEU 讲座抢票助手",
+  "version": "1.0.0",
+  "description": "在东南大学素质讲座详情页锁定讲座，开抢时刻自动预约（本地识别验证码，数据不出浏览器）。",
+  "permissions": ["storage", "alarms", "notifications", "offscreen"],
+  "host_permissions": ["https://ehall.seu.edu.cn/*"],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": ["https://ehall.seu.edu.cn/gsapp/sys/yddjzxxtjappseu/*"],
+      "js": ["content.js"],
+      "run_at": "document_idle"
+    }
+  ],
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "SEU 抢票助手",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "48": "icons/icon48.png",
+      "128": "icons/icon128.png"
+    }
+  },
+  "icons": {
+    "16": "icons/icon16.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  },
+  "content_security_policy": {
+    "extension_pages": "script-src 'self' 'wasm-unsafe-eval'; object-src 'self'"
+  }
+}

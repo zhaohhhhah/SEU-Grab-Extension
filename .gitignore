@@ -1,0 +1,11 @@
+.DS_Store
+Thumbs.db
+
+# 本地打包产物
+*.zip
+
+# 任何本地配置 / 凭据都不要提交
+config.yaml
+.env
+*.pem
+*.key
