@@ -13,6 +13,10 @@
 
 > 本项目仅用于个人预约，不绕过学校的任何规则或限制。能否预约成功最终以「我的活动」中的入场券为准。
 
+讲座系统入口：<https://ehall.seu.edu.cn/gsapp/sys/yddjzxxtjappseu/*default/index.do#/hdyy>
+
+（需先在浏览器中登录 `ehall.seu.edu.cn`；进入后点开任意讲座即为详情页。）
+
 ---
 
 ## 功能
@@ -46,7 +50,8 @@
 
 ## 使用
 
-1. 在浏览器中正常登录 `ehall.seu.edu.cn`，进入 **素质讲座** 列表。
+1. 在浏览器中正常登录 `ehall.seu.edu.cn`，打开 **素质讲座** 列表：
+   <https://ehall.seu.edu.cn/gsapp/sys/yddjzxxtjappseu/*default/index.do#/hdyy>
 2. 点进想预约的讲座 **详情页**（地址中包含 `#/hdxq?WID=...`）。
 3. 右上角会出现「SEU 抢票助手」面板，核对标题、预约时间和名额。
 4. 点击 **锁定本场**：
