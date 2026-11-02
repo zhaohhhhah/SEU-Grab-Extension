@@ -274,6 +274,10 @@
           <div class="m" id="m"></div>
           <div class="cd" id="cd">--</div>
           <div class="st" id="st"></div>
+          <div id="otherLock" style="display:none">
+            <div class="m" id="otherLockTitle"></div>
+            <div class="row"><button class="ghost" data-act="disarm">取消当前锁定</button></div>
+          </div>
           <div class="delay">
             <label for="startDelay">开抢延迟</label>
             <input id="startDelay" type="number" min="0" max="60" step="0.001" value="0" required aria-describedby="delayHint">
@@ -337,6 +341,8 @@
         btn.textContent = S.collapsed ? '+' : '–';
       } else if (act === 'arm') {
         doArm().catch((e) => setStatus('操作失败：' + e.message, 'err'));
+      } else if (act === 'disarm') {
+        doDisarm().catch((e) => setStatus('取消失败：' + e.message, 'err'));
       } else if (act === 'test') {
         testOcr().catch((e) => setStatus('OCR 测试失败：' + e.message, 'err'));
       } else if (act === 'saveDelay') {
@@ -375,6 +381,9 @@
     if (root.activeElement !== retryInput && !retryInput.dataset.dirty) retryInput.value = S.retryDelayMs === null ? '' : S.retryDelayMs / 1000;
     retryInput.disabled = S.running;
     root.getElementById('saveDelay').disabled = S.running;
+    const otherArmed = S.armed && S.armed.wid !== S.wid;
+    root.getElementById('otherLock').style.display = otherArmed ? '' : 'none';
+    root.getElementById('otherLockTitle').textContent = otherArmed ? '当前锁定：' + (S.armed.title || '其他讲座') : '';
 
     const h = S.detail;
     t.textContent = h.JZMC || '未命名讲座';
@@ -448,6 +457,18 @@
   }
 
   // ---------- 锁定 / 取消 ----------
+  async function doDisarm() {
+    const r = await chrome.runtime.sendMessage({ type: 'disarm' });
+    if (!r || !r.ok) throw new Error((r && r.error) || '后台未响应，请重试');
+    clearTimeout(S.timer);
+    S.timer = null;
+    S.armed = null;
+    S.isOwner = false;
+    S.phase = 'idle';
+    setStatus('已取消锁定，可以锁定新场次', 'ok');
+    render();
+  }
+
   async function doArm() {
     if (!S.detail || !S.wid) {
       setStatus('请先打开讲座详情页', 'warn');
@@ -459,17 +480,12 @@
     }
     // 一次只锁一场，避免在另一场详情页误点把原来的锁定顶掉
     if (S.armed && S.armed.wid !== S.wid) {
-      setStatus('已锁定另一场：' + (S.armed.title || '').slice(0, 24) + '，请先取消', 'warn');
+      setStatus('已锁定另一场，请点击「取消当前锁定」后再锁定本场', 'warn');
       return;
     }
     const isArmed = !!(S.armed && S.armed.wid === S.wid);
     if (isArmed) {
-      await chrome.runtime.sendMessage({ type: 'disarm' });
-      S.armed = null;
-      S.isOwner = false;
-      S.phase = 'idle';
-      setStatus('已取消锁定');
-      render();
+      await doDisarm();
       return;
     }
 
@@ -848,11 +864,8 @@
       (async () => {
         try {
           if (msg.action === 'arm') await doArm();
-          else if (msg.action === 'disarm') {
-            await chrome.runtime.sendMessage({ type: 'disarm' });
-            S.armed = null;
-            setStatus('已取消锁定');
-          } else if (msg.action === 'test') await testOcr();
+          else if (msg.action === 'disarm') await doDisarm();
+          else if (msg.action === 'test') await testOcr();
           sendResponse({ ok: true, snapshot: snapshot() });
         } catch (e) {
           sendResponse({ ok: false, error: String(e), snapshot: snapshot() });
@@ -877,11 +890,12 @@
   }
 
   function snapshot() {
-    const openTs = (S.armed && S.armed.openTs) || (S.detail && parseTs(S.detail.YYKSSJ));
-    const closeTs = (S.armed && S.armed.closeTs) || (S.detail && parseTs(S.detail.YYJSSJ));
+    const currentArmed = S.armed && S.armed.wid === S.wid ? S.armed : null;
+    const openTs = (currentArmed && currentArmed.openTs) || (S.detail && parseTs(S.detail.YYKSSJ));
+    const closeTs = (currentArmed && currentArmed.closeTs) || (S.detail && parseTs(S.detail.YYJSSJ));
     return {
       wid: S.wid,
-      title: (S.armed && S.armed.title) || (S.detail && S.detail.JZMC) || '',
+      title: (S.detail && S.detail.JZMC) || (currentArmed && currentArmed.title) || '',
       openTs,
       closeTs,
       armed: S.armed,

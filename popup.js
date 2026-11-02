@@ -7,6 +7,34 @@ let snap = null;
 let monitor = true;
 let startDelayMs = 0;
 let retryDelayMs = null;
+let lockedLecture = null;
+
+function renderGlobalLock() {
+  const show = lockedLecture && (!snap || snap.wid !== lockedLecture.wid || snap.booked);
+  $('globalLock').style.display = show ? '' : 'none';
+  $('globalLockTitle').textContent = lockedLecture ? '当前锁定：' + (lockedLecture.title || '未命名讲座') : '';
+}
+
+async function clearLockedLecture() {
+  const status = $('lockStatus');
+  $('clearLock').disabled = true;
+  try {
+    const r = await chrome.runtime.sendMessage({ type: 'disarm' });
+    if (!r || !r.ok) throw new Error((r && r.error) || '后台未响应，请重试');
+    lockedLecture = null;
+    renderGlobalLock();
+    status.textContent = '已取消锁定，可以锁定新场次';
+    status.className = 'st ok';
+    await refresh();
+  } catch (e) {
+    status.textContent = '取消失败：' + e.message;
+    status.className = 'st err';
+  } finally {
+    $('clearLock').disabled = false;
+  }
+}
+
+$('clearLock').addEventListener('click', clearLockedLecture);
 
 function normalizeStartDelay(value) {
   const n = Number(value);
@@ -28,6 +56,7 @@ function fmtCountdown(ms) {
 
 function render(s) {
   snap = s;
+  renderGlobalLock();
   $('startDelay').disabled = !!(s && s.running);
   $('retryDelay').disabled = !!(s && s.running);
   $('saveDelay').disabled = !!(s && s.running);
@@ -100,7 +129,7 @@ function render(s) {
     armBtn.className = 'danger';
     armBtn.textContent = '取消锁定';
     armBtn.disabled = false;
-    armBtn.onclick = () => act('disarm');
+    armBtn.onclick = clearLockedLecture;
   } else {
     armBtn.className = 'primary';
     armBtn.textContent = '锁定本场';
@@ -129,6 +158,12 @@ function render(s) {
 }
 
 async function refresh() {
+  // 从扩展自身读取锁定状态，原讲座下架或当前标签页没有内容脚本时仍能取消。
+  try {
+    const { armed } = await chrome.storage.local.get('armed');
+    lockedLecture = armed || null;
+    renderGlobalLock();
+  } catch (_) { /* 保留最近一次成功读取的状态 */ }
   if (tabId === null) {
     try {
       const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
@@ -193,7 +228,12 @@ $('saveDelay').addEventListener('click', async () => {
 });
 
 chrome.storage.onChanged.addListener((changes, area) => {
-  if (area !== 'local' || !changes.settings) return;
+  if (area !== 'local') return;
+  if (changes.armed) {
+    lockedLecture = changes.armed.newValue || null;
+    renderGlobalLock();
+  }
+  if (!changes.settings) return;
   const settings = changes.settings.newValue || {};
   monitor = settings.monitorUntilClose !== false;
   startDelayMs = normalizeStartDelay(settings.startDelayMs);
