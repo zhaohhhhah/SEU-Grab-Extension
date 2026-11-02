@@ -5,6 +5,19 @@ let tabId = null;
 let timer = null;
 let snap = null;
 let monitor = true;
+let startDelayMs = 0;
+let retryDelayMs = null;
+
+function normalizeStartDelay(value) {
+  const n = Number(value);
+  return Number.isInteger(n) && n >= 0 && n <= 60000 ? n : 0;
+}
+
+function normalizeRetryDelay(value) {
+  if (value === null || value === undefined || value === '') return null;
+  const n = Number(value);
+  return Number.isInteger(n) && n >= 0 && n <= 60000 ? n : null;
+}
 
 function fmtCountdown(ms) {
   if (ms <= 0) return '00:00:00';
@@ -15,6 +28,9 @@ function fmtCountdown(ms) {
 
 function render(s) {
   snap = s;
+  $('startDelay').disabled = !!(s && s.running);
+  $('retryDelay').disabled = !!(s && s.running);
+  $('saveDelay').disabled = !!(s && s.running);
   const box = $('content');
   if (!s) {
     box.className = 'tip';
@@ -32,6 +48,7 @@ function render(s) {
   const armed = !!(s.armed && s.armed.wid === s.wid);
   const booked = !!s.booked;
   const openTs = s.openTs || (s.armed && s.armed.openTs);
+  const startTs = s.startTs || (openTs && openTs + startDelayMs);
   const now = (s.serverNow || Date.now());
 
   let cd = '--';
@@ -39,8 +56,8 @@ function render(s) {
   if (booked) { cd = '✓ 已预约'; }
   else if (s.phase === 'success') { cd = '🎉 抢票成功'; }
   else if (s.phase === 'failed') { cd = '✗ 未抢到'; cdCls = 'cd err'; }
+  else if (armed && startTs && now < startTs) { cd = (now >= openTs ? '延迟等待 ' : '') + fmtCountdown(startTs - now); }
   else if (s.running) { cd = '抢票中…'; cdCls = 'cd warn'; }
-  else if (armed && openTs && now < openTs) { cd = fmtCountdown(openTs - now); }
   else if (armed) { cd = '已开抢 · 盯回流'; cdCls = 'cd warn'; }
 
   const status = s.status || '';
@@ -141,7 +158,53 @@ async function loadSettings() {
   try {
     const { settings } = await chrome.storage.local.get('settings');
     monitor = !settings || settings.monitorUntilClose !== false;
+    startDelayMs = normalizeStartDelay(settings && settings.startDelayMs);
+    retryDelayMs = normalizeRetryDelay(settings && settings.retryDelayMs);
   } catch (_) { monitor = true; }
+  $('startDelay').value = startDelayMs / 1000;
+  $('retryDelay').value = retryDelayMs === null ? '' : retryDelayMs / 1000;
+}
+
+$('saveDelay').addEventListener('click', async () => {
+  if (snap && snap.running) return;
+  const input = $('startDelay');
+  const retryInput = $('retryDelay');
+  if (input.value.trim() === '' || !input.reportValidity()) return;
+  if (!retryInput.reportValidity()) return;
+  const value = Math.round(Number(input.value) * 1000);
+  const retryValue = retryInput.value.trim() === '' ? null : Math.round(Number(retryInput.value) * 1000);
+  if (!Number.isInteger(value) || value < 0 || value > 60000) return;
+  if (retryValue !== null && (!Number.isInteger(retryValue) || retryValue < 0 || retryValue > 60000)) return;
+  const status = $('delayStatus');
+  try {
+    const { settings } = await chrome.storage.local.get('settings');
+    await chrome.storage.local.set({ settings: { ...settings, startDelayMs: value, retryDelayMs: retryValue } });
+    startDelayMs = value;
+    retryDelayMs = retryValue;
+    delete input.dataset.dirty;
+    delete retryInput.dataset.dirty;
+    status.textContent = `已保存：开抢延迟 ${value / 1000} 秒，重试间隔${retryValue === null ? '自动' : ' ' + retryValue / 1000 + ' 秒'}`;
+    status.className = 'st ok';
+    await refresh();
+  } catch (_) {
+    status.textContent = '保存失败，请重试';
+    status.className = 'st err';
+  }
+});
+
+chrome.storage.onChanged.addListener((changes, area) => {
+  if (area !== 'local' || !changes.settings) return;
+  const settings = changes.settings.newValue || {};
+  monitor = settings.monitorUntilClose !== false;
+  startDelayMs = normalizeStartDelay(settings.startDelayMs);
+  retryDelayMs = normalizeRetryDelay(settings.retryDelayMs);
+  if (document.activeElement !== $('startDelay') && !$('startDelay').dataset.dirty) $('startDelay').value = startDelayMs / 1000;
+  if (document.activeElement !== $('retryDelay') && !$('retryDelay').dataset.dirty) $('retryDelay').value = retryDelayMs === null ? '' : retryDelayMs / 1000;
+  $('monitor').checked = monitor;
+});
+
+for (const id of ['startDelay', 'retryDelay']) {
+  $(id).addEventListener('input', () => { $(id).dataset.dirty = 'true'; });
 }
 
 $('monitor').addEventListener('change', async (e) => {

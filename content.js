@@ -8,6 +8,7 @@
   const HOST_ID = 'seu-grab-host';
   const TICK_MS = 5000;
   const HOT_WINDOW_MS = 180 * 1000; // 开抢后密集尝试 3 分钟
+  const MAX_START_DELAY_MS = 60000;
 
   const S = {
     wid: null,
@@ -25,6 +26,8 @@
     collapsed: false,
     testBusy: false,
     audio: null,
+    startDelayMs: 0,
+    retryDelayMs: null,
   };
 
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -171,6 +174,46 @@
     }
   }
 
+  function normalizeStartDelay(value) {
+    const n = Number(value);
+    return Number.isInteger(n) && n >= 0 && n <= MAX_START_DELAY_MS ? n : 0;
+  }
+
+  function grabStartTs(openTs) {
+    return openTs + S.startDelayMs;
+  }
+
+  function normalizeRetryDelay(value) {
+    if (value === null || value === undefined || value === '') return null;
+    const n = Number(value);
+    return Number.isInteger(n) && n >= 0 && n <= MAX_START_DELAY_MS ? n : null;
+  }
+
+  async function saveDelays() {
+    if (S.running) return;
+    const input = S.root.getElementById('startDelay');
+    const retryInput = S.root.getElementById('retryDelay');
+    if (input.value.trim() === '' || !input.reportValidity()) return;
+    if (!retryInput.reportValidity()) return;
+    const value = Math.round(Number(input.value) * 1000);
+    const retryValue = retryInput.value.trim() === '' ? null : Math.round(Number(retryInput.value) * 1000);
+    if (!Number.isInteger(value) || value < 0 || value > MAX_START_DELAY_MS) return;
+    if (retryValue !== null && (!Number.isInteger(retryValue) || retryValue < 0 || retryValue > MAX_START_DELAY_MS)) return;
+    try {
+      const { settings } = await chrome.storage.local.get('settings');
+      await chrome.storage.local.set({ settings: { ...settings, startDelayMs: value, retryDelayMs: retryValue } });
+      S.startDelayMs = value;
+      S.retryDelayMs = retryValue;
+      delete input.dataset.dirty;
+      delete retryInput.dataset.dirty;
+      setStatus(`已保存：开抢延迟 ${value / 1000} 秒，重试间隔${retryValue === null ? '自动' : ' ' + retryValue / 1000 + ' 秒'}`, 'ok');
+      render();
+      schedule();
+    } catch (e) {
+      setStatus('保存延迟失败：' + e.message, 'err');
+    }
+  }
+
   // ---------- 面板 ----------
   function ensurePanel() {
     if (S.host && document.documentElement.contains(S.host)) return S.root;
@@ -192,7 +235,9 @@
           font: 13px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
           color: #1f2d24; }
         .hd { display: flex; align-items: center; gap: 8px; padding: 9px 12px;
-          background: linear-gradient(135deg, #16a05a, #0f7a45); color: #fff; }
+          background: linear-gradient(135deg, #16a05a, #0f7a45); color: #fff;
+          cursor: grab; user-select: none; touch-action: none; }
+        .hd:active { cursor: grabbing; }
         .hd b { font-size: 13px; font-weight: 600; letter-spacing: .2px; }
         .dot { width: 8px; height: 8px; border-radius: 50%; background: #c9f5da;
           box-shadow: 0 0 0 3px rgba(255,255,255,.25); }
@@ -214,10 +259,13 @@
         .ghost { background: #eef5f0; color: #225c3e; }
         .ghost:disabled { opacity: .5; cursor: default; }
         .hint { margin-top: 8px; font-size: 11px; color: #8a998f; line-height: 1.45; }
+        .delay { display: flex; align-items: center; gap: 6px; margin-top: 10px; font-size: 12px; }
+        .delay input { width: 85px; padding: 5px; border: 1px solid #dbe4dc; border-radius: 5px; font: inherit; }
+        .delay button { border: 0; border-radius: 5px; padding: 6px 8px; cursor: pointer; }
         .bd.hide { display: none; }
       </style>
       <div class="panel">
-        <div class="hd">
+        <div class="hd" title="拖动标题栏移动窗口">
           <span class="dot"></span><b>SEU 抢票助手</b><span class="sp"></span>
           <button data-act="collapse" title="收起/展开">–</button>
         </div>
@@ -226,6 +274,17 @@
           <div class="m" id="m"></div>
           <div class="cd" id="cd">--</div>
           <div class="st" id="st"></div>
+          <div class="delay">
+            <label for="startDelay">开抢延迟</label>
+            <input id="startDelay" type="number" min="0" max="60" step="0.001" value="0" required aria-describedby="delayHint">
+            <span>秒</span>
+          </div>
+          <div class="delay">
+            <label for="retryDelay">重试间隔</label>
+            <input id="retryDelay" type="number" min="0" max="60" step="0.001" placeholder="自动" aria-describedby="delayHint">
+            <span>秒</span><button class="ghost" id="saveDelay" data-act="saveDelay">保存</button>
+          </div>
+          <div class="hint" id="delayHint">开抢延迟默认 0 秒；重试间隔为失败后的等待时间，留空自动。支持小数，范围 0～60 秒，开始抢票前可保存。</div>
           <div class="row">
             <button class="primary" id="arm" data-act="arm">锁定本场</button>
             <button class="ghost" id="test" data-act="test">测试 OCR</button>
@@ -233,6 +292,38 @@
           <div class="hint">开抢前请保持本标签页在前台；首次识别模型加载约 1~3 秒。</div>
         </div>
       </div>`;
+    const header = root.querySelector('.hd');
+    root.getElementById('startDelay').addEventListener('input', (ev) => {
+      ev.target.dataset.dirty = 'true';
+    });
+    root.getElementById('retryDelay').addEventListener('input', (ev) => {
+      ev.target.dataset.dirty = 'true';
+    });
+    let drag = null;
+    header.addEventListener('pointerdown', (ev) => {
+      if (ev.button !== 0 || !ev.isPrimary || ev.target.closest('button')) return;
+      const rect = host.getBoundingClientRect();
+      drag = { pointerId: ev.pointerId, x: ev.clientX, y: ev.clientY, left: rect.left, top: rect.top };
+      host.style.left = `${rect.left}px`;
+      host.style.top = `${rect.top}px`;
+      host.style.right = 'auto';
+      header.setPointerCapture(ev.pointerId);
+      ev.preventDefault();
+    });
+    header.addEventListener('pointermove', (ev) => {
+      if (!drag || ev.pointerId !== drag.pointerId) return;
+      const rect = host.getBoundingClientRect();
+      const left = Math.max(0, Math.min(window.innerWidth - rect.width, drag.left + ev.clientX - drag.x));
+      const top = Math.max(0, Math.min(window.innerHeight - rect.height, drag.top + ev.clientY - drag.y));
+      host.style.left = `${left}px`;
+      host.style.top = `${top}px`;
+    });
+    const endDrag = (ev) => {
+      if (drag && ev.pointerId === drag.pointerId) drag = null;
+    };
+    header.addEventListener('pointerup', endDrag);
+    header.addEventListener('pointercancel', endDrag);
+    header.addEventListener('lostpointercapture', endDrag);
     root.addEventListener('click', (ev) => {
       // 别让点击冒泡到学校页面的全局处理器
       ev.stopPropagation();
@@ -248,6 +339,8 @@
         doArm().catch((e) => setStatus('操作失败：' + e.message, 'err'));
       } else if (act === 'test') {
         testOcr().catch((e) => setStatus('OCR 测试失败：' + e.message, 'err'));
+      } else if (act === 'saveDelay') {
+        saveDelays();
       }
     });
     S.host = host;
@@ -275,6 +368,13 @@
     const cd = root.getElementById('cd');
     if (!t) return;
     if (test) test.disabled = S.running;
+    const delayInput = root.getElementById('startDelay');
+    if (root.activeElement !== delayInput && !delayInput.dataset.dirty) delayInput.value = S.startDelayMs / 1000;
+    delayInput.disabled = S.running;
+    const retryInput = root.getElementById('retryDelay');
+    if (root.activeElement !== retryInput && !retryInput.dataset.dirty) retryInput.value = S.retryDelayMs === null ? '' : S.retryDelayMs / 1000;
+    retryInput.disabled = S.running;
+    root.getElementById('saveDelay').disabled = S.running;
 
     const h = S.detail;
     t.textContent = h.JZMC || '未命名讲座';
@@ -288,6 +388,7 @@
 
     const booked = !!h.YY_WID;
     const openTs = parseTs(h.YYKSSJ);
+    const startTs = openTs && grabStartTs(openTs);
     const closeTs = parseTs(h.YYJSSJ);
     const isArmed = !!(S.armed && S.armed.wid === S.wid);
 
@@ -300,8 +401,8 @@
       arm.disabled = false;
       arm.textContent = '取消锁定';
       const now = serverNow();
-      if (openTs && now < openTs) {
-        cd.textContent = fmtCountdown(openTs - now);
+      if (startTs && now < startTs) {
+        cd.textContent = (now >= openTs ? '延迟等待 ' : '') + fmtCountdown(startTs - now);
         cd.className = 'cd';
       } else if (closeTs && now < closeTs) {
         cd.textContent = '已开抢 · 盯回流';
@@ -334,10 +435,11 @@
     if (!cd || h.YY_WID) return;
     if (!(S.armed && S.armed.wid === S.wid)) return;
     const openTs = parseTs(h.YYKSSJ);
+    const startTs = openTs && grabStartTs(openTs);
     const closeTs = parseTs(h.YYJSSJ);
     const now = serverNow();
-    if (openTs && now < openTs) {
-      cd.textContent = fmtCountdown(openTs - now);
+    if (startTs && now < startTs) {
+      cd.textContent = (now >= openTs ? '延迟等待 ' : '') + fmtCountdown(startTs - now);
       cd.className = 'cd';
     } else if (closeTs && now < closeTs) {
       cd.textContent = '已开抢 · 盯回流';
@@ -401,7 +503,7 @@
     S.armed = r.armed;
     S.isOwner = true;
     S.phase = 'armed';
-    setStatus(openTs > serverNow() ? '已锁定，到点自动抢' : '已锁定，立即开始抢', 'ok');
+    setStatus(grabStartTs(openTs) > serverNow() ? `已锁定，开抢后延迟 ${S.startDelayMs / 1000} 秒提交` : '已锁定，立即开始抢', 'ok');
     beep(880, 120, 1);
     // 提前把 OCR 模型加载好，避免开抢瞬间现加载
     chrome.runtime.sendMessage({ type: 'warmup' }).catch(() => {});
@@ -425,7 +527,8 @@
       return;
     }
 
-    if (now >= openTs - 1500) {
+    const startTs = grabStartTs(openTs);
+    if (now >= startTs - 1500) {
       startGrab().catch((e) => {
         S.running = false;
         setStatus('抢票异常：' + e.message, 'err');
@@ -433,12 +536,9 @@
       return;
     }
 
-    const delay = Math.max(0, openTs - 1500 - now);
+    const delay = Math.max(0, startTs - 1500 - now);
     S.timer = setTimeout(() => {
-      startGrab().catch((e) => {
-        S.running = false;
-        setStatus('抢票异常：' + e.message, 'err');
-      });
+      schedule();
     }, Math.min(delay, 2147483000));
   }
 
@@ -447,6 +547,7 @@
     if (S.running) return;
     S.running = true;
     S.phase = 'grabbing';
+    render();
 
     try {
       const claim = await chrome.runtime.sendMessage({ type: 'claimGrab' });
@@ -463,8 +564,18 @@
       const openTs = armed.openTs;
       const closeTs = armed.closeTs || openTs + 3600 * 1000;
       const settings = await getSettings();
+      const startTs = openTs + normalizeStartDelay(settings.startDelayMs);
+      const retryDelayMs = normalizeRetryDelay(settings.retryDelayMs);
       const monitor = settings.monitorUntilClose;
       const hardEnd = monitor ? closeTs : Math.min(closeTs, openTs + HOT_WINDOW_MS);
+      const stillArmed = () => S.armed && S.armed.wid === wid && S.wid === wid;
+      const pause = async (ms) => {
+        const end = Math.min(serverNow() + ms, hardEnd);
+        while (stillArmed() && serverNow() < end) {
+          await sleep(Math.min(end - serverNow(), 100));
+        }
+      };
+      const waitRetry = (defaultMs) => pause(retryDelayMs === null ? defaultMs : retryDelayMs);
 
       // 先刷新一次，校准服务器时间 / 确认没被预约
       try {
@@ -485,9 +596,14 @@
         setStatus('预取验证码失败，将在开抢后重试', 'warn');
       }
 
-      // 等到开抢
-      while (serverNow() < openTs) {
-        const remain = openTs - serverNow();
+      // 等到设定的提交时刻；取消锁定或离开本场时立即停止等待。
+      while (serverNow() < startTs) {
+        if (!S.armed || S.armed.wid !== wid || S.wid !== wid) return;
+        if (serverNow() >= hardEnd) {
+          await onFail('预约尝试时间已截止');
+          return;
+        }
+        const remain = startTs - serverNow();
         if (remain > 0) await sleep(Math.min(remain, 100));
       }
 
@@ -497,7 +613,7 @@
       setStatus('开抢！');
 
       while (true) {
-        if (!S.armed || S.armed.wid !== wid) {
+        if (!S.armed || S.armed.wid !== wid || S.wid !== wid) {
           setStatus('锁定已被取消，停止抢票', 'warn');
           return;
         }
@@ -522,7 +638,7 @@
             const used = Number(h.YYRS || 0);
             if (total > 0 && used >= total) {
               setStatus(`暂无余票 ${used}/${total}，继续盯回流…`, 'warn');
-              await sleep(1500);
+              await pause(1500);
               continue;
             }
             setStatus(`发现余票 ${used}/${total}，提交中…`, 'ok');
@@ -536,11 +652,13 @@
             code = await fetchCode();
           } catch (e) {
             setStatus('验证码获取失败：' + e.message, 'warn');
-            await sleep(300);
+            await waitRetry(300);
             continue;
           }
         }
 
+        // 验证码和名额查询可能耗时较长，提交前再次检查取消及截止时间。
+        if (!stillArmed() || serverNow() >= hardEnd) continue;
         attempts += 1;
         let r;
         try {
@@ -548,7 +666,7 @@
         } catch (e) {
           lastMsg = e.message;
           setStatus(`第 ${attempts} 次：${lastMsg}`, 'err');
-          await sleep(400);
+          await waitRetry(400);
           continue;
         }
 
@@ -561,16 +679,16 @@
         setStatus(`第 ${attempts} 次：${lastMsg}`, 'warn');
 
         if (/验证码/.test(lastMsg)) {
-          await sleep(60);
+          await waitRetry(60);
           continue;
         }
         if (/未开始|尚未开始|不在.*预约|预约时间/.test(lastMsg)) {
-          await sleep(120);
+          await waitRetry(120);
           continue;
         }
         if (/已满|人数已满|名额|约满/.test(lastMsg)) {
           preCode = null;
-          await sleep(800);
+          await waitRetry(800);
           continue;
         }
         if (/重复|已预约|已经预约/.test(lastMsg)) {
@@ -583,14 +701,15 @@
               return;
             }
           } catch (_) {}
-          await sleep(500);
+          await waitRetry(500);
           continue;
         }
-        await sleep(300);
+        await waitRetry(300);
       }
     } finally {
       S.running = false;
       if (S.phase === 'grabbing') S.phase = 'armed';
+      render();
     }
   }
 
@@ -679,6 +798,9 @@
     if (S.host) S.host.style.display = '';
     try {
       S.detail = await getDetail(wid);
+      const settings = await getSettings();
+      S.startDelayMs = normalizeStartDelay(settings.startDelayMs);
+      S.retryDelayMs = normalizeRetryDelay(settings.retryDelayMs);
       const st = await chrome.runtime.sendMessage({ type: 'getState' });
       S.armed = (st && st.armed) || null;
       S.isOwner = !!(st && st.isOwner);
@@ -703,6 +825,12 @@
 
   chrome.storage.onChanged.addListener((changes, area) => {
     if (area !== 'local') return;
+    if (changes.settings) {
+      S.startDelayMs = normalizeStartDelay(changes.settings.newValue && changes.settings.newValue.startDelayMs);
+      S.retryDelayMs = normalizeRetryDelay(changes.settings.newValue && changes.settings.newValue.retryDelayMs);
+      render();
+      schedule();
+    }
     if (changes.armed) {
       S.armed = changes.armed.newValue || null;
       render();
@@ -766,6 +894,9 @@
       total: S.detail ? Number(S.detail.HDZRS || 0) : 0,
       used: S.detail ? Number(S.detail.YYRS || 0) : 0,
       serverNow: serverNow(),
+      startDelayMs: S.startDelayMs,
+      retryDelayMs: S.retryDelayMs,
+      startTs: openTs && grabStartTs(openTs),
     };
   }
 

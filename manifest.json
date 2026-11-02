@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "SEU 讲座抢票助手",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "在东南大学素质讲座详情页锁定讲座，开抢时刻自动预约（本地识别验证码，数据不出浏览器）。",
   "permissions": ["storage", "alarms", "notifications", "offscreen"],
   "host_permissions": ["https://ehall.seu.edu.cn/*"],

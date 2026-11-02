@@ -22,6 +22,9 @@
   .danger { background: #fdecea; color: #a8322a; }
   label.chk { display: flex; gap: 8px; align-items: flex-start; margin-top: 12px; font-size: 12px; color: #4a5b50; cursor: pointer; }
   label.chk input { margin: 2px 0 0; }
+  .delay { display: flex; gap: 6px; align-items: center; margin-top: 12px; font-size: 12px; }
+  .delay input { width: 85px; padding: 5px; border: 1px solid #dbe4dc; border-radius: 5px; font: inherit; }
+  .delay button { flex: none; padding: 6px 8px; }
   .foot { margin-top: 10px; padding-top: 8px; border-top: 1px solid #e1ebe4; color: #8a998f; font-size: 11px; line-height: 1.5; }
 </style>
 </head>
@@ -29,6 +32,18 @@
   <div class="hd">SEU 抢票助手</div>
   <div class="bd">
     <div id="content" class="tip">正在检测当前页面…</div>
+    <div class="delay">
+      <label for="startDelay">开抢延迟</label>
+      <input id="startDelay" type="number" min="0" max="60" step="0.001" value="0" required aria-describedby="delayHint">
+      <span>秒</span>
+    </div>
+    <div class="delay">
+      <label for="retryDelay">重试间隔</label>
+      <input id="retryDelay" type="number" min="0" max="60" step="0.001" placeholder="自动" aria-describedby="delayHint">
+      <span>秒</span><button class="ghost" id="saveDelay">保存</button>
+    </div>
+    <div class="tip" id="delayHint">开抢延迟默认 0 秒；重试间隔为失败后的等待时间，留空自动。支持小数，范围 0～60 秒，开始抢票前可保存。</div>
+    <div class="st" id="delayStatus" role="status"></div>
     <label class="chk" id="monitorRow" style="display:none">
       <input type="checkbox" id="monitor">
       <span>开抢后继续盯回流票直到预约截止</span>
