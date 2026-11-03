@@ -11,7 +11,7 @@
 - 本地 OCR（onnxruntime-web + ddddocr 模型，wasm 运行）
 - 只在 `ehall.seu.edu.cn` 的讲座系统页面工作
 
-> 本项目仅用于个人预约，不绕过学校的任何规则或限制。能否预约成功最终以「我的活动」中的入场券为准。
+> 本项目仅用于个人学习，请遵守东南大学校规，不要将脚本用于违规用途，产生一切后果由使用者负责。
 
 讲座系统入口：<https://ehall.seu.edu.cn/gsapp/sys/yddjzxxtjappseu/*default/index.do#/hdyy>
 
